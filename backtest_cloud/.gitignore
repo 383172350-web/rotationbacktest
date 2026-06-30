@@ -1,0 +1,8 @@
+# 忽略缓存和日志
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+# 数据文件（如果你不想把数据提交到GitHub，取消下面注释）
+# data/ETF/1d/*.pkl

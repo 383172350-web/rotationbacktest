@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.env
+user_presets.json
+streamlit.pid
+streamlit.port
+streamlit.log

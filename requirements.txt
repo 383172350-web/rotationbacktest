@@ -1,0 +1,19 @@
+# ETF轮动策略回测系统 — 统一依赖
+
+# 数据与计算
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Web 框架
+flask>=2.0.0
+streamlit>=1.28.0
+
+# 可视化
+matplotlib>=3.5.0
+plotly>=5.0.0
+
+# 数据获取（可选）
+akshare>=1.0.0
+
+# 工具
+python-dateutil

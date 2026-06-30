@@ -1,0 +1,21 @@
+# 数据文件
+backtest_cloud/data/
+rotation-web/data/
+*.pkl
+*.csv
+*.xlsx
+
+# 缓存和日志
+__pycache__/
+*.pyc
+*.log
+*.bak
+
+# 环境
+.env
+.venv/
+venv/
+
+# 系统文件
+.DS_Store
+Thumbs.db

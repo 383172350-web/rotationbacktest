@@ -1,0 +1,14 @@
+# ETF轮动策略回测系统 - 云端部署依赖
+
+# 数据与计算
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Web 框架 (Flask版)
+flask>=2.0.0
+
+# 可视化
+matplotlib>=3.5.0
+
+# Streamlit (Streamlit Cloud 部署版)
+streamlit>=1.28.0
