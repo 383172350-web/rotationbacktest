@@ -22,6 +22,7 @@ from engine import (
     scan_pkl_dir,
     build_data_dict,
     ETF_NAMES,
+    PKL_DIR,
     calc_all_indicators,
     compute_indicators_for_df,
     run_backtest,
@@ -31,6 +32,7 @@ from engine import (
     compute_yearly_returns,
 )
 from engine.expression_parser import evaluate_condition, evaluate_score
+import os
 
 # ============================================================
 #  页面配置
@@ -1300,6 +1302,11 @@ st.title("ETF轮动策略回测系统")
 # ============================================================
 # 获取所有可用的 pkl 文件（提前构建映射，侧边栏和主区域都用）
 _all_pkl_items = cached_scan_pkl_dir()
+
+# 检测本地数据目录状态
+_local_data_exists = os.path.isdir(PKL_DIR) and any(f.endswith('_1d.pkl') for f in os.listdir(PKL_DIR)) if os.path.isdir(PKL_DIR) else False
+if not _local_data_exists:
+    st.sidebar.warning("⚠️ 本地数据未检测到，股票池使用默认列表。运行回测时将自动通过 akshare 在线下载数据，首次加载可能较慢。")
 _thscode_to_label = {}
 _label_to_thscode = {}
 for _item in _all_pkl_items:

@@ -136,6 +136,9 @@ _PKL_PATTERN = re.compile(r"^(\d{6})_([A-Z]{2})_1d\.pkl$")
 def scan_pkl_dir(pkl_dir=None):
     """扫描 pkl 目录，返回 [{code, suffix, thscode, name}] 列表，按 code 排序。
 
+    当本地目录不存在时，自动使用 ETF_NAMES 生成默认股票池，
+    支持 Streamlit Cloud 等无本地数据环境。
+
     Parameters
     ----------
     pkl_dir : str, optional
@@ -148,34 +151,115 @@ def scan_pkl_dir(pkl_dir=None):
     """
     if pkl_dir is None:
         pkl_dir = PKL_DIR
-    if not os.path.isdir(pkl_dir):
-        return []
 
-    items = []
-    for fname in os.listdir(pkl_dir):
-        m = _PKL_PATTERN.match(fname)
-        if not m:
-            continue
-        code = m.group(1)
-        suffix = m.group(2)
-        thscode = f"{code}.{suffix}"
-        name = ETF_NAMES.get(thscode, code)
-        items.append({
-            "code": code,
-            "suffix": suffix,
-            "thscode": thscode,
-            "name": name,
+    if os.path.isdir(pkl_dir):
+        items = []
+        for fname in os.listdir(pkl_dir):
+            m = _PKL_PATTERN.match(fname)
+            if not m:
+                continue
+            code = m.group(1)
+            suffix = m.group(2)
+            thscode = f"{code}.{suffix}"
+            name = ETF_NAMES.get(thscode, code)
+            items.append({
+                "code": code,
+                "suffix": suffix,
+                "thscode": thscode,
+                "name": name,
+            })
+        items.sort(key=lambda x: x["code"])
+        return items
+    else:
+        # 本地目录不存在：使用 ETF_NAMES 生成默认股票池
+        items = []
+        for thscode, name in ETF_NAMES.items():
+            parts = thscode.split('.')
+            if len(parts) == 2:
+                items.append({
+                    "code": parts[0],
+                    "suffix": parts[1],
+                    "thscode": thscode,
+                    "name": name,
+                })
+        items.sort(key=lambda x: x["code"])
+        return items
+
+
+# ============================================================
+#  _download_from_akshare
+# ============================================================
+def _download_from_akshare(code, suffix):
+    """使用 akshare 下载 ETF 日线数据，返回标准格式 DataFrame。
+
+    返回 DataFrame 索引为 datetime，列 open/high/low/close/volume。
+    下载失败返回 None。
+    """
+    try:
+        import akshare as ak
+    except Exception:
+        return None
+
+    try:
+        ak_code = f"{suffix.lower()}{code}"
+        df = ak.fund_etf_hist_em(
+            symbol=code,
+            period="daily",
+            start_date="20000101",
+            end_date="20991231",
+            adjust="qfq"
+        )
+        if df is None or df.empty:
+            return None
+
+        # 标准化列名
+        df = df.rename(columns={
+            '日期': 'time',
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'volume',
         })
+        df['time'] = pd.to_datetime(df['time'])
+        df = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
+        df = df[(df['close'] > 0) & (df['open'] > 0) & (df['volume'] > 0)]
+        return df
+    except Exception:
+        return None
 
-    items.sort(key=lambda x: x["code"])
-    return items
+
+# ============================================================
+#  _save_pkl
+# ============================================================
+def _save_pkl(code, suffix, df, pkl_dir=None):
+    """将 DataFrame 保存为 pkl 格式，与现有数据格式一致。
+    """
+    if df is None or df.empty:
+        return
+    if pkl_dir is None:
+        pkl_dir = PKL_DIR
+
+    os.makedirs(pkl_dir, exist_ok=True)
+    pkl_file = os.path.join(pkl_dir, f"{code}_{suffix}_1d.pkl")
+
+    try:
+        # 转换为现有格式：stime(YYYYMMDD字符串) 作为索引
+        save_df = df.reset_index()
+        save_df['stime'] = save_df['time'].dt.strftime('%Y%m%d')
+        save_df = save_df.set_index('stime')[['open', 'high', 'low', 'close', 'volume']]
+        save_df.to_pickle(pkl_file)
+    except Exception:
+        pass
 
 
 # ============================================================
 #  load_pkl_data
 # ============================================================
-def load_pkl_data(code, suffix, pkl_dir=None):
+def load_pkl_data(code, suffix, pkl_dir=None, try_online=True):
     """加载单个 pkl 文件并做基本预处理。
+
+    当本地文件不存在时，如果 try_online=True，尝试使用 akshare 在线下载。
 
     Parameters
     ----------
@@ -185,6 +269,8 @@ def load_pkl_data(code, suffix, pkl_dir=None):
         交易所后缀，如 "SH" / "SZ"。
     pkl_dir : str, optional
         pkl 文件所在目录，默认使用 PKL_DIR。
+    try_online : bool, default True
+        本地文件不存在时是否尝试在线下载。
 
     Returns
     -------
@@ -197,6 +283,11 @@ def load_pkl_data(code, suffix, pkl_dir=None):
 
     pkl_file = os.path.join(pkl_dir, f"{code}_{suffix}_1d.pkl")
     if not os.path.exists(pkl_file):
+        if try_online:
+            df = _download_from_akshare(code, suffix)
+            if df is not None and not df.empty:
+                _save_pkl(code, suffix, df, pkl_dir)
+            return df
         return None
 
     try:
