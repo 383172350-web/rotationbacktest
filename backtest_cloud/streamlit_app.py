@@ -749,7 +749,6 @@ def formula_editor(key_prefix, preset_formula=""):
     st.markdown("**当前公式**")
     current = st.text_area(
         "编辑公式",
-        value=st.session_state[formula_key],
         key=editor_key,
         placeholder="点击下方选择元素插入...",
         height=64,
