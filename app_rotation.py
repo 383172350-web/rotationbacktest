@@ -6,9 +6,12 @@
 import sys
 import os
 
-# 添加 rotation-web 到 Python 路径
 base_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(base_dir, 'rotation-web'))
+app_dir = os.path.join(base_dir, 'rotation-web')
+sys.path.insert(0, app_dir)
 
-# 执行新版策略生成器
-import streamlit_app
+# 直接执行 streamlit_app.py，确保 __name__ == '__main__'
+__file__ = os.path.join(app_dir, 'streamlit_app.py')
+__name__ = '__main__'
+with open(__file__, 'r', encoding='utf-8') as f:
+    exec(compile(f.read(), __file__, 'exec'))
