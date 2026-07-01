@@ -929,7 +929,8 @@ def main():
             results = engine.run()
 
             progress_bar.progress(100)
-            status_text.text("✅ 回测完成！")
+            status_text.empty()
+            progress_bar.empty()
             st.session_state.results = results
 
         except Exception as e:
@@ -958,7 +959,23 @@ def _parse_pct(val):
 
 def show_results(results):
     st.divider()
-    st.subheader("📈 回测统计")
+    # 回测统计标题 + 数据日期（靠上对齐）
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.subheader("📈 回测统计")
+    with c2:
+        df_nav = results.get('daily_values', pd.DataFrame())
+        if not df_nav.empty:
+            latest_date = df_nav.index[-1] if hasattr(df_nav.index, 'strftime') else pd.to_datetime(df_nav['date'].iloc[-1]) if 'date' in df_nav.columns else None
+            if latest_date is not None:
+                today = pd.Timestamp.now().normalize()
+                is_today = (pd.to_datetime(latest_date).date() == today.date()) if not isinstance(latest_date, (pd.Timestamp, datetime.date)) else (latest_date == today)
+                date_str = pd.to_datetime(latest_date).strftime('%Y-%m-%d')
+                if is_today:
+                    st.markdown(f'<p style="color:#888;font-size:12px;text-align:right;margin:0;padding-top:2px;">Data: {date_str} (Updated)</p>', unsafe_allow_html=True)
+                else:
+                    delta_days = (today - pd.to_datetime(latest_date)).days
+                    st.markdown(f'<p style="color:#888;font-size:12px;text-align:right;margin:0;padding-top:2px;">Data: {date_str} ({delta_days}d behind)</p>', unsafe_allow_html=True)
     
     # 解析结果（支持字符串百分比和数值）
     total_return = _parse_pct(results.get('total_return', 0))

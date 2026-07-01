@@ -1719,6 +1719,21 @@ with tab4:
         if nav_df.empty:
             st.warning("回测结果为空，请检查参数设置。")
         else:
+            # 回测统计标题 + 数据日期
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.subheader("回测统计")
+            with c2:
+                latest_date = nav_df.index[-1]
+                today = pd.Timestamp.now().normalize()
+                is_today = (latest_date == today)
+                date_str = latest_date.strftime('%Y-%m-%d')
+                if is_today:
+                    st.markdown(f'<p style="color:#888;font-size:12px;text-align:right;margin:0;padding-top:2px;">Data: {date_str} (Updated)</p>', unsafe_allow_html=True)
+                else:
+                    delta_days = (today - latest_date).days
+                    st.markdown(f'<p style="color:#888;font-size:12px;text-align:right;margin:0;padding-top:2px;">Data: {date_str} ({delta_days}d behind)</p>', unsafe_allow_html=True)
+
             # 绩效卡片
             perf = compute_performance(nav_df)
 

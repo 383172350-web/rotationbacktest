@@ -621,34 +621,30 @@ class BacktestEngine:
                             'hold_days': row.get('hold_days', 0)
                         })
 
-        # 最新排名/信号（从 rebalance_plans 取最新买入/卖出计划对应的排名信息）
+        # 最新排名/信号（直接从 rebalance_plans 取最新买入计划）
         latest_rankings = []
         if self.rebalance_plans:
             plan_df = pd.DataFrame(self.rebalance_plans)
-            if not plan_df.empty and 'date' in plan_df.columns:
+            if not plan_df.empty and 'date' in plan_df.columns and 'plan_type' in plan_df.columns:
                 plan_df['date'] = pd.to_datetime(plan_df['date'])
-                last_plan_date = plan_df['date'].max()
-                # 从 trade_log 找最新买入记录对应的排名得分
-                if not trade_df.empty and 'reason' in trade_df.columns:
-                    buy_trades = trade_df[trade_df['action'] == 'BUY']
-                    if not buy_trades.empty:
-                        buy_trades['date'] = pd.to_datetime(buy_trades['date'])
-                        last_buys = buy_trades[buy_trades['date'] == last_plan_date]
-                        for _, row in last_buys.iterrows():
-                            reason = row.get('reason', '')
-                            # 提取得分: "排名得分: 123.45"
-                            score = 0
-                            if '排名得分:' in reason:
-                                try:
-                                    score = float(reason.split('排名得分:')[1].strip())
-                                except:
-                                    pass
-                            latest_rankings.append({
-                                'rank': len(latest_rankings) + 1,
-                                'ticker': row.get('code', ''),
-                                'name': row.get('name', ''),
-                                'score': round(score, 2)
-                            })
+                buy_plans = plan_df[plan_df['plan_type'] == 'BUY_PLAN']
+                if not buy_plans.empty:
+                    last_plan_date = buy_plans['date'].max()
+                    last_buys = buy_plans[buy_plans['date'] == last_plan_date]
+                    for _, row in last_buys.iterrows():
+                        detail = row.get('detail', '')
+                        score = 0
+                        if '排名得分:' in detail:
+                            try:
+                                score = float(detail.split('排名得分:')[1].strip())
+                            except:
+                                pass
+                        latest_rankings.append({
+                            'rank': len(latest_rankings) + 1,
+                            'ticker': row.get('code', ''),
+                            'name': row.get('name', ''),
+                            'score': round(score, 2)
+                        })
 
         results = {
             'strategy_name': self.strategy['name'],

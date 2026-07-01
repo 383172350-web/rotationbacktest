@@ -12,6 +12,14 @@ import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request, Response
 
+# 导入统一数据加载模块（多源自动降级：本地pkl → AKShare → 东方财富 → 腾讯 → findb → westock）
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from engine.data_loader import (
+    load_pkl_data as _load_single_etf,
+    build_data_dict as _build_data_dict,
+)
+
 app = Flask(__name__)
 
 # ========================================
@@ -135,19 +143,23 @@ FEE_RATE = 0.0001
 
 
 # ========================================
-#  数据加载
+#  数据加载（统一多源降级：本地pkl → AKShare → 东方财富 → 腾讯 → findb → westock）
 # ========================================
 def load_pkl_data(pkl_dir, tickers):
+    """批量加载ETF数据，统一为在线多源降级方式。
+    
+    每个标的逐个调用 engine.data_loader.load_pkl_data，支持：
+    - 本地pkl不存在时自动在线下载
+    - 交易时间强制在线获取最新数据
+    - 非交易时间核对收盘价新鲜度
+    - 下载成功后自动保存到本地pkl
+    """
     result = {}
     for code, cfg in tickers.items():
-        pkl_file = os.path.join(pkl_dir, "{}_{}_1d.pkl".format(code, cfg['suffix']))
-        if not os.path.exists(pkl_file):
-            continue
         try:
-            df = pd.read_pickle(pkl_file).reset_index()
-            df['time'] = pd.to_datetime(df['stime'].astype(str), format='%Y%m%d')
-            df = df[(df['close'] > 0) & (df['open'] > 0) & (df['volume'] > 0)].copy()
-            result[cfg['thscode']] = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
+            df = _load_single_etf(code, cfg['suffix'], pkl_dir=pkl_dir, try_online=True)
+            if df is not None and not df.empty:
+                result[cfg['thscode']] = df
         except Exception:
             continue
     return result
