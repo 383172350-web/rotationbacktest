@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 :: ============================================================
-:: 统一启动脚本：启动4个系统
+:: 统一启动脚本：启动3个系统
 :: ============================================================
 
 cd /d "%~dp0"
@@ -18,17 +18,15 @@ echo   [1] 旧版 Flask API  (端口 8001)
 echo   [2] 旧版策略生成器 (端口 8503)
 echo   [3] 新版策略生成器 (端口 8502)
 echo   [4] 启动全部 (3个窗口)
-echo   [5] 启动全部 (3个窗口)
 echo   [0] 退出
 echo.
 
-set /p choice="请输入数字 (0-5): "
+set /p choice="请输入数字 (0-4): "
 
 if "%choice%"=="1" goto start_flask
 if "%choice%"=="2" goto start_legacy
 if "%choice%"=="3" goto start_rotation
 if "%choice%"=="4" goto start_all
-if "%choice%"=="5" goto end
 if "%choice%"=="0" goto end
 
 echo 无效输入，退出...
@@ -67,9 +65,13 @@ start "Streamlit 8503" cmd /k %PYTHON% -m streamlit run streamlit_app.py --serve
 cd /d "%~dp0\rotation-web"
 start "Streamlit 8502" cmd /k %PYTHON% -m streamlit run streamlit_app.py --server.port 8502 --server.headless true
 echo.
-echo Flask API:     http://localhost:8001
-echo 旧版策略生成器: http://localhost:8503
-echo 新版策略生成器: http://localhost:8502
+echo ==========================================
+echo   所有服务已启动
+echo ==========================================
+echo   Flask API:      http://localhost:8001
+echo   旧版策略生成器: http://localhost:8503
+echo   新版策略生成器: http://localhost:8502
+echo ==========================================
 goto end
 
 :end

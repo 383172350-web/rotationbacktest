@@ -966,7 +966,7 @@ def show_results(results):
         with cols[i]:
             st.markdown(f'<div class="metric-card" style="background:{color};"><div class="metric-value">{value}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
 
-    # 显示最新数据日期
+    # 显示最新数据日期 banner（醒目位置）
     df_nav = results.get('daily_values', pd.DataFrame())
     latest_date = None
     if not df_nav.empty:
@@ -975,10 +975,11 @@ def show_results(results):
         today = pd.Timestamp.now().normalize()
         is_today = (pd.to_datetime(latest_date).date() == today.date()) if not isinstance(latest_date, (pd.Timestamp, datetime.date)) else (latest_date == today)
         delta_days = (today - pd.to_datetime(latest_date)).days if not is_today else 0
+        date_str = pd.to_datetime(latest_date).strftime('%Y-%m-%d')
         if is_today:
-            st.markdown(f'<div style="display:inline-block;background:#4CAF50;color:white;padding:4px 12px;border-radius:4px;font-size:12px;margin-bottom:8px;">✅ 数据已更新至 {pd.to_datetime(latest_date).strftime("%Y-%m-%d")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background:#4CAF50;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;text-align:center;">✅ 数据已更新至最新交易日 {date_str}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div style="display:inline-block;background:#FF9800;color:white;padding:4px 12px;border-radius:4px;font-size:12px;margin-bottom:8px;">⚠️ 数据截止 {pd.to_datetime(latest_date).strftime("%Y-%m-%d")}（{delta_days}天前）</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background:#FF9800;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;text-align:center;">⚠️ 数据截止 {date_str}（{delta_days} 天前，建议重新运行回测）</div>', unsafe_allow_html=True)
 
     # 净值曲线
     with st.container():

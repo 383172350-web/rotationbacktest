@@ -1704,11 +1704,26 @@ with tab4:
         if nav_df.empty:
             st.warning("回测结果为空，请检查参数设置。")
         else:
+            # 数据新鲜度 banner（放在最上方，最醒目）
+            latest_date = nav_df.index[-1] if not nav_df.empty else None
+            today = pd.Timestamp.now().normalize()
+            if latest_date:
+                is_today = (latest_date == today)
+                date_str = latest_date.strftime('%Y-%m-%d')
+                if is_today:
+                    st.markdown(f'''<div style="background:#4CAF50;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;">
+                    ✅ 数据已更新至最新交易日 {date_str}
+                    </div>''', unsafe_allow_html=True)
+                else:
+                    delta_days = (today - latest_date).days
+                    st.markdown(f'''<div style="background:#FF9800;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;">
+                    ⚠️ 数据截止 {date_str}（{delta_days} 天前，建议点击上方"🚀 运行回测"重新加载）
+                    </div>''', unsafe_allow_html=True)
+
             # 绩效卡片
             perf = compute_performance(nav_df)
 
-            # 绩效卡片 + 最新数据日期
-            col1, col2, col3, col4, col5, col_date = st.columns(6)
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
                 st.metric("总收益率", f"{perf['total_return']:.2f}%")
             with col2:
@@ -1719,21 +1734,6 @@ with tab4:
                 st.metric("夏普比率", f"{perf['sharpe']:.2f}")
             with col5:
                 st.metric("卡尔玛比率", f"{perf['calmar']:.2f}")
-            with col_date:
-                # 显示数据最新日期
-                latest_date = nav_df.index[-1] if not nav_df.empty else None
-                today = pd.Timestamp.now().normalize()
-                if latest_date:
-                    is_today = (latest_date == today)
-                    label = "最新数据日期"
-                    value = latest_date.strftime('%Y-%m-%d')
-                    if is_today:
-                        st.metric(label, value, delta="已更新", delta_color="normal")
-                    else:
-                        delta_days = (today - latest_date).days
-                        st.metric(label, value, delta=f"{delta_days}天前", delta_color="off")
-                else:
-                    st.metric(label, "N/A")
 
             st.divider()
 
