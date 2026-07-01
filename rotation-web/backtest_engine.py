@@ -23,6 +23,10 @@ if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 
+# ========== 性能开关 ==========
+VERBOSE = False  # 关闭打印输出加速回测
+
+
 class Position:
     """单个持仓"""
     def __init__(self, code: str, name: str, shares: float, cost_price: float,
@@ -136,15 +140,17 @@ class BacktestEngine:
         if all_dates_set is None:
             all_dates_set = set()
         self.all_dates = sorted(all_dates_set)
-        print(f"已加载 {len(self.all_data)} 只标的，共 {len(self.all_dates)} 个交易日（交易日交集）")
+        if VERBOSE:
+            print(f"已加载 {len(self.all_data)} 只标的，共 {len(self.all_dates)} 个交易日（交易日交集）")
 
     def run(self) -> dict:
         """执行回测"""
-        print(f"\n{'='*60}")
-        print(f"开始回测: {self.strategy['name']}")
-        print(f"期间: {self.start_date} ~ {self.end_date}")
-        print(f"初始资金: {self.initial_capital:,.0f}")
-        print(f"{'='*60}\n")
+        if VERBOSE:
+            print(f"\n{'='*60}")
+            print(f"开始回测: {self.strategy['name']}")
+            print(f"期间: {self.start_date} ~ {self.end_date}")
+            print(f"初始资金: {self.initial_capital:,.0f}")
+            print(f"{'='*60}\n")
 
         universe = {item['code']: item['name'] for item in self.strategy['universe']}
         alt_code_str = self.alternative_asset['code'] if self.alternative_asset else ''
@@ -510,7 +516,8 @@ class BacktestEngine:
             'reason': f'排名得分: {score:.2f}'
         })
 
-        print(f"  [BUY] {date_str} 买入 {name}({code}) {shares}股 @ {price:.4f}, 金额={cost:.0f}")
+        if VERBOSE:
+            print(f"  [BUY] {date_str} 买入 {name}({code}) {shares}股 @ {price:.4f}, 金额={cost:.0f}")
 
     def _execute_sell(self, code: str, date_str: str, reason: str, date):
         """T+1执行卖出：使用T+1日的open价格。"""
@@ -542,8 +549,9 @@ class BacktestEngine:
             'reason': reason
         })
 
-        print(f"  [SELL] {date_str} 卖出 {pos.name}({code}) {pos.shares}股 @ {price:.4f}, "
-              f"收益={profit_pct:.2%}({profit_amount:.0f}), 原因: {reason}")
+        if VERBOSE:
+            print(f"  [SELL] {date_str} 卖出 {pos.name}({code}) {pos.shares}股 @ {price:.4f}, "
+                  f"收益={profit_pct:.2%}({profit_amount:.0f}), 原因: {reason}")
 
         del self.positions[code]
 
@@ -606,18 +614,19 @@ class BacktestEngine:
             'rebalance_plans': pd.DataFrame(self.rebalance_plans) if self.rebalance_plans else pd.DataFrame()
         }
 
-        print(f"\n{'='*60}")
-        print(f"回测完成: {self.strategy['name']}")
-        print(f"{'='*60}")
-        print(f"期间: {results['period']}")
-        print(f"初始资金: {self.initial_capital:,.0f}")
-        print(f"最终市值: {results['final_value']:,.0f}")
-        print(f"总收益率: {results['total_return']}")
-        print(f"年化收益: {results['annual_return']}")
-        print(f"最大回撤: {results['max_drawdown']}")
-        print(f"夏普比率: {results['sharpe_ratio']}")
-        print(f"总交易次数: {results['total_trades']}")
-        print(f"胜率: {results['win_rate']}")
-        print(f"{'='*60}")
+        if VERBOSE:
+            print(f"\n{'='*60}")
+            print(f"回测完成: {self.strategy['name']}")
+            print(f"{'='*60}")
+            print(f"期间: {results['period']}")
+            print(f"初始资金: {self.initial_capital:,.0f}")
+            print(f"最终市值: {results['final_value']:,.0f}")
+            print(f"总收益率: {results['total_return']}")
+            print(f"年化收益: {results['annual_return']}")
+            print(f"最大回撤: {results['max_drawdown']}")
+            print(f"夏普比率: {results['sharpe_ratio']}")
+            print(f"总交易次数: {results['total_trades']}")
+            print(f"胜率: {results['win_rate']}")
+            print(f"{'='*60}")
 
         return results
