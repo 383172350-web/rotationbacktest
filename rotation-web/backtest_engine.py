@@ -27,41 +27,7 @@ if sys.platform == "win32":
 VERBOSE = False  # 关闭打印输出加速回测
 
 
-class Position:
-    """单个持仓"""
-    def __init__(self, code: str, name: str, shares: float, cost_price: float,
-                 entry_date: str, exit_date: Optional[str] = None):
-        self.code = code
-        self.name = name
-        self.shares = shares
-        self.cost_price = cost_price
-        self.entry_date = entry_date
-        self.exit_date = exit_date
-        self.current_price = cost_price
-
-    @property
-    def market_value(self):
-        return self.shares * self.current_price
-
-    def update_price(self, price: float):
-        self.current_price = price
-
-    @property
-    def profit_pct(self):
-        """当前收益率"""
-        if self.cost_price == 0:
-            return 0
-        return (self.current_price - self.cost_price) / self.cost_price
-
-    @property
-    def hold_days(self):
-        if not hasattr(self, '_hold_days'):
-            self._hold_days = 0
-        return self._hold_days
-
-    @hold_days.setter
-    def hold_days(self, val):
-        self._hold_days = val
+# Position 已简化为字典：{'code':, 'name':, 'shares':, 'cost_price':, 'current_price':, 'entry_date':, 'hold_days':}
 
 
 class BacktestEngine:
@@ -97,7 +63,7 @@ class BacktestEngine:
         self.alternative_asset = self.strategy.get('alternative_asset')  # 替代资产
 
         self.cash = self.initial_capital
-        self.positions: Dict[str, Position] = {}
+        self.positions: Dict[str, dict] = {}
         self.trade_log: List[dict] = []
         self.daily_values: List[dict] = []
         self.daily_positions: List[dict] = []  # 每日持仓明细
@@ -174,7 +140,7 @@ class BacktestEngine:
             self._update_positions(date)
 
             for pos in self.positions.values():
-                pos.hold_days += 1
+                pos['hold_days'] += 1
 
             # === T日信号：每天检查卖出条件（用收盘价判断，次日执行）===
             self._check_sell_conditions(date, date_str, universe, alt_code_str)
@@ -183,7 +149,7 @@ class BacktestEngine:
             if self._is_rebalance_date(date):
                 self._rebalance_buy(date, date_str, universe)
 
-            total_value = self.cash + sum(p.market_value for p in self.positions.values())
+            total_value = self.cash + sum(p['shares'] * p['current_price'] for p in self.positions.values())
             self.daily_values.append({
                 'date': date_str,
                 'total_value': total_value,
@@ -205,16 +171,19 @@ class BacktestEngine:
                 last_num_positions = num_positions
                 # 记录持仓明细
                 for code, pos in self.positions.items():
+                    cp = pos['current_price']
+                    cv = pos['cost_price']
+                    profit = (cp - cv) / cv if cv > 0 else 0
                     self.daily_positions.append({
                         'date': date_str,
                         'code': code,
-                        'name': pos.name,
-                        'shares': pos.shares,
-                        'cost_price': round(pos.cost_price, 4),
-                        'current_price': round(pos.current_price, 4),
-                        'market_value': round(pos.market_value, 2),
-                        'profit_pct': round(pos.profit_pct, 4),
-                        'hold_days': pos.hold_days
+                        'name': pos['name'],
+                        'shares': pos['shares'],
+                        'cost_price': round(cv, 4),
+                        'current_price': round(cp, 4),
+                        'market_value': round(pos['shares'] * cp, 2),
+                        'profit_pct': round(profit, 4),
+                        'hold_days': pos['hold_days']
                     })
                 # 如果当日无持仓，记录空仓状态
                 if not self.positions:
@@ -257,8 +226,7 @@ class BacktestEngine:
             if code in self.all_data:
                 df = self.all_data[code]
                 if date in df.index:
-                    price = df.at[date, 'close']
-                    pos.update_price(price)
+                    pos['current_price'] = df.at[date, 'close']
 
     def _is_rebalance_date(self, date) -> bool:
         dt = date if isinstance(date, datetime) else pd.Timestamp(date)
@@ -311,8 +279,8 @@ class BacktestEngine:
 
             current_rank = rank_map.get(code, 999)
             extra_vars = {
-                'profit': pos.profit_pct,
-                'hold_days': pos.hold_days,
+                'profit': (pos['current_price'] - pos['cost_price']) / pos['cost_price'] if pos['cost_price'] > 0 else 0,
+                'hold_days': pos['hold_days'],
                 'rank': current_rank
             }
 
@@ -353,10 +321,10 @@ class BacktestEngine:
                     'date': date_str,
                     'plan_type': 'SELL_PLAN',
                     'code': code,
-                    'name': pos.name,
+                    'name': pos['name'],
                     'detail': sell_reason,
-                    'profit_pct': round(pos.profit_pct, 4),
-                    'hold_days': pos.hold_days
+                    'profit_pct': round((pos['current_price'] - pos['cost_price']) / pos['cost_price'] if pos['cost_price'] > 0 else 0, 4),
+                    'hold_days': pos['hold_days']
                 })
 
     def _rebalance_buy(self, date, date_str: str, universe: dict):
@@ -494,7 +462,7 @@ class BacktestEngine:
             return
         price = df.at[date, 'open'] * (1 + self.slippage)
 
-        total_value = self.cash + sum(p.market_value for p in self.positions.values())
+        total_value = self.cash + sum(p['shares'] * p['current_price'] for p in self.positions.values())
 
         if self.pos_mode == 'fixed':
             target_value = total_value * self.fixed_ratio
@@ -521,8 +489,10 @@ class BacktestEngine:
             cost = shares * price * (1 + self.commission)
 
         self.cash -= cost
-        pos = Position(code, name, shares, price, date_str)
-        pos.current_price = price
+        pos = {
+            'code': code, 'name': name, 'shares': shares, 'cost_price': price,
+            'current_price': price, 'entry_date': date_str, 'hold_days': 0
+        }
         self.positions[code] = pos
 
         self.trade_log.append({
@@ -548,11 +518,12 @@ class BacktestEngine:
         if code in self.all_data and date in self.all_data[code].index:
             price = self.all_data[code].at[date, 'open'] * (1 - self.slippage)
         else:
-            price = pos.current_price * (1 - self.slippage)
-        amount = pos.shares * price * (1 - self.commission)
+            price = pos['current_price'] * (1 - self.slippage)
+        amount = pos['shares'] * price * (1 - self.commission)
 
-        profit_pct = pos.profit_pct
-        profit_amount = amount - pos.shares * pos.cost_price
+        cp = pos['cost_price']
+        profit_pct = (price - cp) / cp if cp > 0 else 0
+        profit_amount = amount - pos['shares'] * cp
 
         self.cash += amount
 
@@ -560,9 +531,9 @@ class BacktestEngine:
             'date': date_str,
             'action': 'SELL',
             'code': code,
-            'name': pos.name,
+            'name': pos['name'],
             'price': round(price, 4),
-            'shares': pos.shares,
+            'shares': pos['shares'],
             'amount': round(amount, 2),
             'profit_pct': f"{profit_pct:.2%}",
             'profit_amount': round(profit_amount, 2),
@@ -570,7 +541,7 @@ class BacktestEngine:
         })
 
         if VERBOSE:
-            print(f"  [SELL] {date_str} 卖出 {pos.name}({code}) {pos.shares}股 @ {price:.4f}, "
+            print(f"  [SELL] {date_str} 卖出 {pos['name']}({code}) {pos['shares']}股 @ {price:.4f}, "
                   f"收益={profit_pct:.2%}({profit_amount:.0f}), 原因: {reason}")
 
         del self.positions[code]
