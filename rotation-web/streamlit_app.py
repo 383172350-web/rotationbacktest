@@ -249,6 +249,8 @@ def get_data(codes_list, start_date, end_date, alt_code=""):
     智能缓存：
     - 交易时间（9:30-15:00）：fetch_kline 强制在线下载，盘中数据实时变化
     - 非交易时间：1小时缓存，减少重复下载
+    
+    优化：使用线程池并发下载，5线程并行
     """
     # 生成缓存键
     cache_key = f"data_cache_{hash(str(codes_list)+start_date+end_date+alt_code)}"
@@ -269,19 +271,37 @@ def get_data(codes_list, start_date, end_date, alt_code=""):
     start_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d")
     warmup = (start_dt - pd.Timedelta(days=400)).strftime('%Y-%m-%d')
     
+    # 并发下载（5线程）
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     all_data = {}
-    for item in all_codes:
+    errors = []
+    
+    def _fetch_one(item):
         code = item['code'] if isinstance(item, dict) else item
         try:
             df = fetch_kline(code, warmup, end_date, auto_save=True)
             if not df.empty and len(df) > 60:
                 df['date'] = pd.to_datetime(df['date'])
-                all_data[code] = df
-            elif code != alt_code:
-                st.warning(f"{code} 数据不足或为空，已跳过")
+                return code, df, None
+            return code, None, f"{code} 数据不足或为空"
         except Exception as e:
-            if code != alt_code:
-                st.warning(f"获取 {code} 失败: {e}")
+            return code, None, f"获取 {code} 失败: {e}"
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_fetch_one, item): item for item in all_codes}
+        for future in as_completed(futures):
+            code, df, err = future.result()
+            if df is not None:
+                all_data[code] = df
+            elif err and code != alt_code:
+                errors.append(err)
+    
+    # 显示错误（去重）
+    for err in errors[:5]:  # 最多显示5个错误
+        st.warning(err)
+    if len(errors) > 5:
+        st.warning(f"... 还有 {len(errors)-5} 只数据获取失败")
     
     # 保存到缓存（供非交易时间使用）
     st.session_state[cache_key] = {
