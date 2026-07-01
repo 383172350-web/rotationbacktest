@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-数据加载模块 —— 从 pkl 文件批量加载 ETF 日线数据
+数据加载模块 —— 统一数据获取方式（本地 pkl + 在线多源降级）
+与 rotation-web 保持一致：交易时间强制在线，非交易时间优先本地+核对收盘价
 """
 from __future__ import print_function, division
 
 import os
 import re
+import datetime
 import pandas as pd
+import subprocess
 
 # ============================================================
 #  默认 pkl 目录
@@ -189,8 +192,14 @@ def scan_pkl_dir(pkl_dir=None):
 # ============================================================
 #  _download_from_akshare
 # ============================================================
-def _download_from_akshare(code, suffix):
+def _download_from_akshare(code, suffix, start_date=None, end_date=None):
     """使用 akshare 下载 ETF 日线数据，返回标准格式 DataFrame。
+
+    参数:
+        code: 6位代码
+        suffix: SH/SZ
+        start_date: 开始日期 "YYYYMMDD"，默认20000101
+        end_date: 结束日期 "YYYYMMDD"，默认20991231
 
     返回 DataFrame 索引为 datetime，列 open/high/low/close/volume。
     下载失败返回 None。
@@ -202,11 +211,13 @@ def _download_from_akshare(code, suffix):
 
     try:
         ak_code = f"{suffix.lower()}{code}"
+        start = start_date if start_date else "20000101"
+        end = end_date if end_date else "20991231"
         df = ak.fund_etf_hist_em(
             symbol=code,
             period="daily",
-            start_date="20000101",
-            end_date="20991231",
+            start_date=start,
+            end_date=end,
             adjust="qfq"
         )
         if df is None or df.empty:
@@ -224,6 +235,81 @@ def _download_from_akshare(code, suffix):
         df['time'] = pd.to_datetime(df['time'])
         df = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
         df = df[(df['close'] > 0) & (df['open'] > 0) & (df['volume'] > 0)]
+        return df
+    except Exception:
+        return None
+
+
+# ============================================================
+#  _download_akshare_recent (用于数据新鲜度核对)
+# ============================================================
+def _download_akshare_recent(code, suffix, days=10):
+    """下载最近N天数据，用于核对本地数据新鲜度"""
+    end = datetime.datetime.now().strftime('%Y%m%d')
+    start = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime('%Y%m%d')
+    return _download_from_akshare(code, suffix, start_date=start, end_date=end)
+
+
+# ============================================================
+#  _is_trading_time
+# ============================================================
+def _is_trading_time():
+    """判断当前是否在交易时间（9:30-15:00）"""
+    now = datetime.datetime.now()
+    t = now.time()
+    return datetime.time(9, 30) <= t <= datetime.time(15, 0)
+
+
+# ============================================================
+#  _download_westock
+# ============================================================
+def _download_westock(code, suffix):
+    """使用 westock 命令行工具获取数据"""
+    try:
+        cmd = f"npx -y westock-data-clawhub@1.0.4 kline {suffix.lower()}{code} --period day --limit 3000 --fq qfq"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return None
+
+        # 解析 markdown 表格
+        lines = result.stdout.strip().split('\n')
+        table_start = -1
+        for i, line in enumerate(lines):
+            if '|' in line and (i + 1 < len(lines) and '---' in lines[i + 1]):
+                table_start = i
+                break
+        if table_start == -1:
+            return None
+
+        header_line = lines[table_start].strip()
+        if header_line.startswith('|'): header_line = header_line[1:]
+        if header_line.endswith('|'): header_line = header_line[:-1]
+        headers = [h.strip() for h in header_line.split('|')]
+
+        rows = []
+        for line in lines[table_start + 2:]:
+            line = line.strip()
+            if not line or '|' not in line:
+                continue
+            if line.startswith('|'): line = line[1:]
+            if line.endswith('|'): line = line[:-1]
+            values = [v.strip() for v in line.split('|')]
+            if len(values) == len(headers):
+                rows.append(dict(zip(headers, values)))
+
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows)
+        # 标准化列名
+        col_map = {'Date': 'time', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}
+        df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        df['time'] = pd.to_datetime(df['time'])
+        df = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
+        df = df[(df['close'] > 0) & (df['open'] > 0)]
         return df
     except Exception:
         return None
@@ -390,6 +476,7 @@ def _try_all_sources(code, suffix):
         _download_eastmoney_direct,
         _download_tencent,
         _download_findb,
+        _download_westock,
     ]
     for source in sources:
         try:
@@ -426,12 +513,15 @@ def _save_pkl(code, suffix, df, pkl_dir=None):
 
 
 # ============================================================
-#  load_pkl_data
+#  load_pkl_data —— 统一数据获取（与 rotation-web 保持一致）
 # ============================================================
 def load_pkl_data(code, suffix, pkl_dir=None, try_online=True):
-    """加载单个 pkl 文件并做基本预处理。
+    """加载单个 ETF 数据，统一为 rotation-web 数据获取方式。
 
-    当本地文件不存在时，如果 try_online=True，尝试使用 akshare 在线下载。
+    智能策略：
+    - 交易时间（9:30-15:00）：始终从在线下载最新数据（多源自动降级）
+    - 非交易时间：优先本地 pkl，核对收盘价是否一致，不一致则强制更新
+    - 下载成功后自动保存到本地 pkl
 
     Parameters
     ----------
@@ -442,36 +532,85 @@ def load_pkl_data(code, suffix, pkl_dir=None, try_online=True):
     pkl_dir : str, optional
         pkl 文件所在目录，默认使用 PKL_DIR。
     try_online : bool, default True
-        本地文件不存在时是否尝试在线下载。
+        是否允许在线下载。
 
     Returns
     -------
     pd.DataFrame or None
         索引为 datetime，列为 open/high/low/close/volume。
-        如果文件不存在或加载失败，返回 None。
     """
     if pkl_dir is None:
         pkl_dir = PKL_DIR
 
-    pkl_file = os.path.join(pkl_dir, f"{code}_{suffix}_1d.pkl")
-    if not os.path.exists(pkl_file):
-        if try_online:
-            df = _try_all_sources(code, suffix)
-            if df is not None and not df.empty:
-                _save_pkl(code, suffix, df, pkl_dir)
-            return df
-        return None
+    today = pd.Timestamp(datetime.date.today())
 
-    try:
-        df = pd.read_pickle(pkl_file).reset_index()
-        # 索引 stime(int) -> datetime
-        df["time"] = pd.to_datetime(df["stime"].astype(str), format="%Y%m%d")
-        # 过滤无效行情
-        df = df[(df["close"] > 0) & (df["open"] > 0) & (df["volume"] > 0)].copy()
-        df = df.set_index("time")[["open", "high", "low", "close", "volume"]]
+    # ========== 交易时间：强制在线获取（多源自动降级）==========
+    if _is_trading_time() and try_online:
+        df = _try_all_sources(code, suffix)
+        if df is not None and not df.empty:
+            _save_pkl(code, suffix, df, pkl_dir)
         return df
-    except Exception:
-        return None
+
+    # ========== 非交易时间：优先本地，核对收盘价新鲜度 ==========
+    pkl_file = os.path.join(pkl_dir, f"{code}_{suffix}_1d.pkl")
+
+    if os.path.exists(pkl_file):
+        try:
+            df_local = pd.read_pickle(pkl_file).reset_index()
+            df_local["time"] = pd.to_datetime(df_local["stime"].astype(str), format="%Y%m%d")
+            df_local = df_local[(df_local["close"] > 0) & (df_local["open"] > 0) & (df_local["volume"] > 0)].copy()
+            df_local = df_local.set_index("time")[["open", "high", "low", "close", "volume"]]
+
+            if not df_local.empty and try_online:
+                last_date = df_local.index[-1]
+
+                # 如果本地数据明显过期（差2天以上），直接下载
+                if last_date < today - pd.Timedelta(days=2):
+                    pass  # fall through to download
+                else:
+                    # 核对收盘价：下载最近10天数据对比
+                    try:
+                        df_verify = _download_akshare_recent(code, suffix, days=10)
+                        if df_verify is not None and not df_verify.empty:
+                            # 找到最新共同交易日
+                            common_dates = df_local.index.intersection(df_verify.index)
+                            if len(common_dates) > 0:
+                                latest_common = common_dates[-1]
+                                local_close = float(df_local.loc[latest_common, "close"])
+                                verify_close = float(df_verify.loc[latest_common, "close"])
+
+                                if abs(local_close - verify_close) < 1e-6:
+                                    # 收盘价一致，返回本地数据
+                                    return df_local
+                                else:
+                                    # 收盘价不一致，强制更新完整数据
+                                    print(f"[数据核对] {code}.{suffix}: close不一致 本地={local_close} 在线={verify_close}，强制更新")
+                                    df_full = _try_all_sources(code, suffix)
+                                    if df_full is not None and not df_full.empty:
+                                        _save_pkl(code, suffix, df_full, pkl_dir)
+                                        return df_full
+                    except Exception as e:
+                        print(f"[核对失败] {code}.{suffix}: {e}")
+
+                    # 核对失败或不需要核对，返回本地数据
+                    return df_local
+
+            # 本地数据过期或不需要在线，尝试在线
+            if try_online:
+                pass  # fall through to download
+            else:
+                return df_local if not df_local.empty else None
+        except Exception:
+            pass
+
+    # ========== 本地没有或过期，尝试在线下载（多源自动降级）==========
+    if try_online:
+        df = _try_all_sources(code, suffix)
+        if df is not None and not df.empty:
+            _save_pkl(code, suffix, df, pkl_dir)
+        return df
+
+    return None
 
 
 # ============================================================

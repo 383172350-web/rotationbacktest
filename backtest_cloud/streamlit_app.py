@@ -1707,7 +1707,8 @@ with tab4:
             # 绩效卡片
             perf = compute_performance(nav_df)
 
-            col1, col2, col3, col4, col5 = st.columns(5)
+            # 绩效卡片 + 最新数据日期
+            col1, col2, col3, col4, col5, col_date = st.columns(6)
             with col1:
                 st.metric("总收益率", f"{perf['total_return']:.2f}%")
             with col2:
@@ -1718,6 +1719,21 @@ with tab4:
                 st.metric("夏普比率", f"{perf['sharpe']:.2f}")
             with col5:
                 st.metric("卡尔玛比率", f"{perf['calmar']:.2f}")
+            with col_date:
+                # 显示数据最新日期
+                latest_date = nav_df.index[-1] if not nav_df.empty else None
+                today = pd.Timestamp.now().normalize()
+                if latest_date:
+                    is_today = (latest_date == today)
+                    label = "最新数据日期"
+                    value = latest_date.strftime('%Y-%m-%d')
+                    if is_today:
+                        st.metric(label, value, delta="已更新", delta_color="normal")
+                    else:
+                        delta_days = (today - latest_date).days
+                        st.metric(label, value, delta=f"{delta_days}天前", delta_color="off")
+                else:
+                    st.metric(label, "N/A")
 
             st.divider()
 
