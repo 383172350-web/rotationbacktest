@@ -2,15 +2,14 @@
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io)
 
-一个统一的 ETF 轮动策略回测与生成平台，整合**旧版硬编码策略**、**新版表达式引擎**和**全品类资产轮动机器人**三大系统。
+一个统一的 ETF 轮动策略回测与生成平台，整合**旧版硬编码策略**和**新版表达式引擎**两大系统。
 
-## 三大应用
+## 两大应用
 
 | 应用 | 入口文件 | 说明 | 本地端口 |
 |------|----------|------|---------|
 | **旧版策略生成器** | `app_legacy.py` | 原始硬编码策略（DIFv/WDM/RSRS/LOF）+ 表达式引擎 | 8503 |
 | **新版策略生成器** | `app_rotation.py` | 全新表达式引擎 + 可视化策略构建 | 8502 |
-| **全品类资产轮动** | `app_bot.py` | DIFv 轮动全自动交易机器人 | - |
 
 ## 核心特性
 
@@ -24,7 +23,7 @@
 ### 本地启动
 
 ```bash
-# 一键启动全部（4 个系统）
+# 一键启动全部（2 个系统）
 start_all.bat
 
 # 或单独启动
@@ -36,9 +35,6 @@ python -m streamlit run backtest_cloud/streamlit_app.py --server.port 8503
 
 # 新版策略生成器
 python -m streamlit run rotation-web/streamlit_app.py --server.port 8502
-
-# 全品类资产轮动
-python 全品类资产轮动双模式.py
 ```
 
 ### Streamlit Cloud 部署
@@ -48,7 +44,6 @@ python 全品类资产轮动双模式.py
 3. 选择入口文件：
    - `app_legacy.py` → 旧版策略生成器
    - `app_rotation.py` → 新版策略生成器
-   - `app_bot.py` → 全品类资产轮动
 4. 高级设置 → 设置环境变量 `PKL_DIR`（pkl 数据目录路径）
 
 ## 数据准备
@@ -79,8 +74,6 @@ rotationbacktest/
 │   └── ...
 ├── app_legacy.py            # Streamlit Cloud 入口：旧版
 ├── app_rotation.py          # Streamlit Cloud 入口：新版
-├── app_bot.py               # Streamlit Cloud 入口：机器人
-├── 全品类资产轮动双模式.py  # 独立机器人脚本
 ├── start_all.bat            # 一键启动脚本
 └── requirements.txt         # 统一依赖
 ```

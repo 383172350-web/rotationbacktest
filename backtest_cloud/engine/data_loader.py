@@ -230,6 +230,178 @@ def _download_from_akshare(code, suffix):
 
 
 # ============================================================
+#  _download_eastmoney_direct
+# ============================================================
+def _download_eastmoney_direct(code, suffix):
+    """直接调用东方财富API获取ETF K线，无需akshare依赖"""
+    import requests
+
+    # secid: 1=上海, 0=深圳
+    secid = "1" if suffix == "SH" else "0"
+    beg = "20000101"
+    end = "20991231"
+
+    url = (
+        f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
+        f"?secid={secid}.{code}"
+        f"&fields1=f1,f2,f3,f4,f5,f6"
+        f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+        f"&klt=101&fqt=1&beg={beg}&end={end}"
+    )
+
+    try:
+        resp = requests.get(url, timeout=30)
+        data = resp.json()
+
+        if not data.get("data") or not data["data"].get("klines"):
+            return None
+
+        klines = data["data"]["klines"]
+        rows = []
+        for line in klines:
+            parts = line.split(",")
+            if len(parts) >= 6:
+                rows.append({
+                    "time": parts[0],
+                    "open": float(parts[1]),
+                    "close": float(parts[2]),
+                    "low": float(parts[3]),
+                    "high": float(parts[4]),
+                    "volume": float(parts[5]),
+                })
+
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows)
+        df['time'] = pd.to_datetime(df['time'])
+        df = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
+        df = df[(df['close'] > 0) & (df['open'] > 0) & (df['volume'] > 0)]
+        return df
+    except Exception:
+        return None
+
+
+# ============================================================
+#  _download_tencent
+# ============================================================
+def _download_tencent(code, suffix):
+    """直接调用腾讯API获取ETF K线"""
+    import requests
+
+    tencent_code = f"{suffix.lower()}{code}"
+    start_date = "2000-01-01"
+    end_date = "2099-12-31"
+
+    url = (
+        f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+        f"?param={tencent_code},day,{start_date},{end_date},640,qfq"
+    )
+
+    try:
+        resp = requests.get(url, timeout=30)
+        data = resp.json()
+
+        key = f"{suffix.lower()}{code}"
+        if not data.get("data") or not data["data"].get(key):
+            return None
+
+        klines = data["data"][key].get("day", [])
+        if not klines:
+            return None
+
+        rows = []
+        for item in klines:
+            if isinstance(item, list) and len(item) >= 5:
+                rows.append({
+                    "time": item[0],
+                    "open": float(item[1]),
+                    "close": float(item[2]),
+                    "low": float(item[3]),
+                    "high": float(item[4]),
+                    "volume": float(item[5]) if len(item) > 5 else 0,
+                })
+
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows)
+        df['time'] = pd.to_datetime(df['time'])
+        df = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
+        df = df[(df['close'] > 0) & (df['open'] > 0)]
+        return df
+    except Exception:
+        return None
+
+
+# ============================================================
+#  _download_findb
+# ============================================================
+def _download_findb(code, suffix):
+    """使用 findb API 获取数据"""
+    import requests
+    import datetime
+
+    TOKEN = "sk_live_7orj6tBMMNiB.4eAcaTYc65icYsacCZksDfkHqvVvQyKfdbPf0X8aiR0"
+
+    start_dt = datetime.datetime.strptime("2000-01-01", "%Y-%m-%d")
+    end_dt = datetime.datetime.strptime("2099-12-31", "%Y-%m-%d")
+    days = (end_dt - start_dt).days + 1
+    limit = max(days, 3000)
+
+    url = f"https://api.jiucaicat.icu:8443/api/bars?code={code}.{suffix}&freq=daily&limit={limit}&order=desc"
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=60)
+        data = resp.json()
+
+        records = data.get("data", []) if isinstance(data, dict) else data
+        if not records or not isinstance(records, list):
+            return None
+
+        df = pd.DataFrame(records)
+        df.columns = [c.lower() for c in df.columns]
+
+        df = df.rename(columns={
+            'datetime': 'time',
+            'time': 'time',
+        })
+
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col not in df.columns:
+                return None
+
+        df['time'] = pd.to_datetime(df['time'])
+        df = df.set_index('time')[['open', 'high', 'low', 'close', 'volume']]
+        df = df[(df['close'] > 0) & (df['open'] > 0)]
+        return df
+    except Exception:
+        return None
+
+
+# ============================================================
+#  _try_all_sources
+# ============================================================
+def _try_all_sources(code, suffix):
+    """尝试所有数据源，按优先级依次尝试，返回第一个成功的 DataFrame。"""
+    sources = [
+        _download_from_akshare,
+        _download_eastmoney_direct,
+        _download_tencent,
+        _download_findb,
+    ]
+    for source in sources:
+        try:
+            df = source(code, suffix)
+            if df is not None and not df.empty:
+                return df
+        except Exception:
+            continue
+    return None
+
+
+# ============================================================
 #  _save_pkl
 # ============================================================
 def _save_pkl(code, suffix, df, pkl_dir=None):
@@ -284,7 +456,7 @@ def load_pkl_data(code, suffix, pkl_dir=None, try_online=True):
     pkl_file = os.path.join(pkl_dir, f"{code}_{suffix}_1d.pkl")
     if not os.path.exists(pkl_file):
         if try_online:
-            df = _download_from_akshare(code, suffix)
+            df = _try_all_sources(code, suffix)
             if df is not None and not df.empty:
                 _save_pkl(code, suffix, df, pkl_dir)
             return df
