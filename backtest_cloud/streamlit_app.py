@@ -1561,6 +1561,21 @@ with st.sidebar:
         else:
             st.info("暂无保存的策略")
 
+        st.markdown("---")
+        # 数据新鲜度提示（低调显示在侧边栏底部）
+        if "backtest_result" in st.session_state:
+            nav_df = st.session_state["backtest_result"].get("nav_df", pd.DataFrame())
+            if not nav_df.empty:
+                latest_date = nav_df.index[-1]
+                today = pd.Timestamp.now().normalize()
+                is_today = (latest_date == today)
+                date_str = latest_date.strftime('%Y-%m-%d')
+                if is_today:
+                    st.markdown(f'<p style="color:#4CAF50;font-size:11px;margin:0;">Data: {date_str} (Updated)</p>', unsafe_allow_html=True)
+                else:
+                    delta_days = (today - latest_date).days
+                    st.markdown(f'<p style="color:#FF9800;font-size:11px;margin:0;">Data: {date_str} ({delta_days}d behind)</p>', unsafe_allow_html=True)
+
 # ============================================================
 #  主区域 —— Tabs
 # ============================================================
@@ -1704,22 +1719,6 @@ with tab4:
         if nav_df.empty:
             st.warning("回测结果为空，请检查参数设置。")
         else:
-            # 数据新鲜度 banner（放在最上方，最醒目）
-            latest_date = nav_df.index[-1] if not nav_df.empty else None
-            today = pd.Timestamp.now().normalize()
-            if latest_date:
-                is_today = (latest_date == today)
-                date_str = latest_date.strftime('%Y-%m-%d')
-                if is_today:
-                    st.markdown(f'''<div style="background:#4CAF50;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;">
-                    ✅ 数据已更新至最新交易日 {date_str}
-                    </div>''', unsafe_allow_html=True)
-                else:
-                    delta_days = (today - latest_date).days
-                    st.markdown(f'''<div style="background:#FF9800;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;">
-                    ⚠️ 数据截止 {date_str}（{delta_days} 天前，建议点击上方"🚀 运行回测"重新加载）
-                    </div>''', unsafe_allow_html=True)
-
             # 绩效卡片
             perf = compute_performance(nav_df)
 

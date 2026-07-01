@@ -863,6 +863,21 @@ def main():
         
         st.markdown("---")
         st.caption(data_source_info)
+        # 数据新鲜度提示（低调灰色小字）
+        if 'results' in st.session_state and st.session_state.results:
+            results = st.session_state.results
+            df_nav = results.get('daily_values', pd.DataFrame())
+            if not df_nav.empty:
+                latest_date = df_nav.index[-1] if hasattr(df_nav.index, 'strftime') else pd.to_datetime(df_nav['date'].iloc[-1]) if 'date' in df_nav.columns else None
+                if latest_date is not None:
+                    today = pd.Timestamp.now().normalize()
+                    is_today = (pd.to_datetime(latest_date).date() == today.date()) if not isinstance(latest_date, (pd.Timestamp, datetime.date)) else (latest_date == today)
+                    date_str = pd.to_datetime(latest_date).strftime('%Y-%m-%d')
+                    if is_today:
+                        st.markdown(f'<p style="color:#4CAF50;font-size:11px;margin:0;">Data: {date_str} (Updated)</p>', unsafe_allow_html=True)
+                    else:
+                        delta_days = (today - pd.to_datetime(latest_date)).days
+                        st.markdown(f'<p style="color:#FF9800;font-size:11px;margin:0;">Data: {date_str} ({delta_days}d behind)</p>', unsafe_allow_html=True)
 
     # ---------- 主页面 ----------
     st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
@@ -965,21 +980,6 @@ def show_results(results):
     for i, (label, value, color) in enumerate(metrics):
         with cols[i]:
             st.markdown(f'<div class="metric-card" style="background:{color};"><div class="metric-value">{value}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
-
-    # 显示最新数据日期 banner（醒目位置）
-    df_nav = results.get('daily_values', pd.DataFrame())
-    latest_date = None
-    if not df_nav.empty:
-        latest_date = df_nav.index[-1] if hasattr(df_nav.index, 'strftime') else pd.to_datetime(df_nav['date'].iloc[-1]) if 'date' in df_nav.columns else None
-    if latest_date is not None:
-        today = pd.Timestamp.now().normalize()
-        is_today = (pd.to_datetime(latest_date).date() == today.date()) if not isinstance(latest_date, (pd.Timestamp, datetime.date)) else (latest_date == today)
-        delta_days = (today - pd.to_datetime(latest_date)).days if not is_today else 0
-        date_str = pd.to_datetime(latest_date).strftime('%Y-%m-%d')
-        if is_today:
-            st.markdown(f'<div style="background:#4CAF50;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;text-align:center;">✅ 数据已更新至最新交易日 {date_str}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div style="background:#FF9800;color:white;padding:10px 16px;border-radius:6px;font-size:16px;font-weight:bold;margin-bottom:12px;text-align:center;">⚠️ 数据截止 {date_str}（{delta_days} 天前，建议重新运行回测）</div>', unsafe_allow_html=True)
 
     # 净值曲线
     with st.container():
