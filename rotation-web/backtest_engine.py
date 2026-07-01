@@ -157,6 +157,10 @@ class BacktestEngine:
 
         start_dt = pd.Timestamp(self.start_date)
         end_dt = pd.Timestamp(self.end_date)
+        
+        # 性能优化：稀疏记录持仓明细（每5个交易日 + 交易发生日）
+        trading_day_counter = 0
+        last_num_positions = 0
 
         for date in self.all_dates:
             # 跳过回测区间外的日期
@@ -187,33 +191,44 @@ class BacktestEngine:
                 'positions_value': total_value - self.cash,
                 'num_positions': len(self.positions)
             })
-
-            # 记录每日持仓明细
-            for code, pos in self.positions.items():
-                self.daily_positions.append({
-                    'date': date_str,
-                    'code': code,
-                    'name': pos.name,
-                    'shares': pos.shares,
-                    'cost_price': round(pos.cost_price, 4),
-                    'current_price': round(pos.current_price, 4),
-                    'market_value': round(pos.market_value, 2),
-                    'profit_pct': round(pos.profit_pct, 4),
-                    'hold_days': pos.hold_days
-                })
-            # 如果当日无持仓，记录空仓状态
-            if not self.positions:
-                self.daily_positions.append({
-                    'date': date_str,
-                    'code': '',
-                    'name': '空仓',
-                    'shares': 0,
-                    'cost_price': 0,
-                    'current_price': 0,
-                    'market_value': 0,
-                    'profit_pct': 0,
-                    'hold_days': 0
-                })
+            
+            trading_day_counter += 1
+            num_positions = len(self.positions)
+            # 每5个交易日记录一次，或持仓数量变化时，或首尾交易日
+            should_record = (
+                trading_day_counter % 5 == 0 or
+                num_positions != last_num_positions or
+                trading_day_counter == 1
+            )
+            
+            if should_record:
+                last_num_positions = num_positions
+                # 记录持仓明细
+                for code, pos in self.positions.items():
+                    self.daily_positions.append({
+                        'date': date_str,
+                        'code': code,
+                        'name': pos.name,
+                        'shares': pos.shares,
+                        'cost_price': round(pos.cost_price, 4),
+                        'current_price': round(pos.current_price, 4),
+                        'market_value': round(pos.market_value, 2),
+                        'profit_pct': round(pos.profit_pct, 4),
+                        'hold_days': pos.hold_days
+                    })
+                # 如果当日无持仓，记录空仓状态
+                if not self.positions:
+                    self.daily_positions.append({
+                        'date': date_str,
+                        'code': '',
+                        'name': '空仓',
+                        'shares': 0,
+                        'cost_price': 0,
+                        'current_price': 0,
+                        'market_value': 0,
+                        'profit_pct': 0,
+                        'hold_days': 0
+                    })
 
         return self._generate_results()
 
@@ -242,7 +257,7 @@ class BacktestEngine:
             if code in self.all_data:
                 df = self.all_data[code]
                 if date in df.index:
-                    price = df.loc[date, 'close']
+                    price = df.at[date, 'close']
                     pos.update_price(price)
 
     def _is_rebalance_date(self, date) -> bool:
@@ -268,13 +283,18 @@ class BacktestEngine:
     def _check_sell_conditions(self, date, date_str: str, universe: dict, alt_code_str: str):
         """
         T日信号：每天检查卖出条件（用收盘价判断），满足则加入待执行队列，次日open价执行。
-        优化：预计算列直接读取；涉及特殊变量的简单条件用 fast_evaluate，不传整df。
+        优化：如果卖出规则不包含 rank 变量，跳过全量排名计算。
         """
-        all_rankings = self._rank_candidates(date, universe)
-        rank_map = {code: rank for rank, (code, _) in enumerate(all_rankings, 1)}
-
         sell_rules = self.strategy.get('sell_rules', [])
         sell_mode = self.strategy.get('sell_match_mode', 'any')
+        
+        # 检查是否需要 rank：如果任何规则包含 'rank' 才做全量排名
+        needs_rank = any('rank' in rule.get('condition', '') for rule in sell_rules)
+        rank_map = {}
+        if needs_rank:
+            all_rankings = self._rank_candidates(date, universe)
+            rank_map = {code: rank for rank, (code, _) in enumerate(all_rankings, 1)}
+        
         # 检查哪些规则有预计算列
         sample_df = next(iter(self.all_data.values())) if self.all_data else None
         has_precols = [f'__sell_{i}' in sample_df.columns for i in range(len(sell_rules))] if sample_df is not None else [False]*len(sell_rules)
@@ -305,7 +325,7 @@ class BacktestEngine:
                 try:
                     if has_precols[i] and not has_special_var(condition):
                         # 预计算列直接读取
-                        val = df.loc[date, f'__sell_{i}']
+                        val = df.at[date, f'__sell_{i}']
                         met = bool(val)
                     else:
                         # 先尝试简单条件快速求值（不涉及df操作）
@@ -389,7 +409,7 @@ class BacktestEngine:
                 try:
                     if has_precols[i] and not has_special_var(condition):
                         # 预计算列直接读取
-                        val = df.loc[date, f'__buy_{i}']
+                        val = df.at[date, f'__buy_{i}']
                         met = bool(val)
                     else:
                         # 先尝试简单条件快速求值
@@ -451,7 +471,7 @@ class BacktestEngine:
             try:
                 if has_precomputed and not needs_dynamic:
                     # 直接读取预计算列
-                    score = df.loc[date, '__rank_score']
+                    score = df.at[date, '__rank_score']
                 else:
                     # 回退到动态解析，传入整df不切片
                     score = evaluate_score(rank_formula, df)
@@ -472,7 +492,7 @@ class BacktestEngine:
         df = self.all_data[code]
         if date not in df.index:
             return
-        price = df.loc[date, 'open'] * (1 + self.slippage)
+        price = df.at[date, 'open'] * (1 + self.slippage)
 
         total_value = self.cash + sum(p.market_value for p in self.positions.values())
 
@@ -526,7 +546,7 @@ class BacktestEngine:
 
         pos = self.positions[code]
         if code in self.all_data and date in self.all_data[code].index:
-            price = self.all_data[code].loc[date, 'open'] * (1 - self.slippage)
+            price = self.all_data[code].at[date, 'open'] * (1 - self.slippage)
         else:
             price = pos.current_price * (1 - self.slippage)
         amount = pos.shares * price * (1 - self.commission)
