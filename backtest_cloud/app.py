@@ -2236,6 +2236,7 @@ def run_difv_backtest_api(params):
         'trades': trades,
         'current_holdings': current_holdings,
         'rankings': rankings,
+        'latest_date': str(last_date.date()) if last_date else None,
     })
 
 
@@ -2326,6 +2327,7 @@ def run_wdm_backtest_api(params):
         'trades': trades,
         'current_holdings': current_holdings,
         'rankings': rankings,
+        'latest_date': str(last_date.date()) if last_date else None,
     })
 
 
@@ -2590,6 +2592,7 @@ def run_custom_backtest_api(params):
         'trades': trades,
         'current_holdings': current_holdings,
         'rankings': rankings,
+        'latest_date': str(last_date.date()) if last_date else None,
     })
 
 
@@ -2640,6 +2643,7 @@ def _build_common_response(nav_df, trade_df, initial_capital, start_date, data_d
         'nav_curve': nav_curve, 'benchmark': benchmark, 'drawdown': drawdown,
         'performance': perf, 'yearly_returns': yearly, 'holdings_timeline': hold_timeline,
         'trades': trades, 'current_holdings': current_holdings, 'rankings': rankings,
+        'latest_date': nav_curve[-1]['date'] if nav_curve else None,
     })
 
 
@@ -2961,6 +2965,7 @@ tr:hover td { background:#1a3a6a; }
     </div>
   </div>
   <div id="resultArea" style="display:none;">
+    <div id="dataDate" style="margin-bottom:4px;"></div>
     <div class="perf-cards" id="perfCards"></div>
     <div class="chart-box"><h3>&#128200; 净值曲线</h3><div id="navChart" class="chart-container"></div></div>
     <div class="chart-box"><h3>&#128201; 持仓时间线</h3><div id="holdChart" class="chart-container-sm"></div></div>
@@ -3190,6 +3195,15 @@ async function runBacktest() {
 
 function renderResult(d) {
   document.getElementById('resultArea').style.display = 'block';
+  // 最新数据日期
+  const latestDate = d.latest_date || (d.nav_curve && d.nav_curve.length > 0 ? d.nav_curve[d.nav_curve.length-1].date : null);
+  const dateEl = document.getElementById('dataDate');
+  if(latestDate) {
+    const today = new Date().toISOString().slice(0,10);
+    const isToday = latestDate === today;
+    dateEl.innerHTML = `<span style="color:${isToday?'#51cf8d':'#ff9800'};font-size:12px;">● Data: ${latestDate}${isToday?' (Updated)':' (Behind)'}</span>`;
+    dateEl.style.display = 'block';
+  } else { dateEl.style.display = 'none'; }
   // 绩效卡片
   const perf = d.performance || {};
   const cards = [
