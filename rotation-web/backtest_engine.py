@@ -588,6 +588,68 @@ class BacktestEngine:
         else:
             win_rate = 0
 
+        # 计算年度收益
+        yearly_returns = []
+        if not df.empty:
+            df['year'] = df.index.year
+            for year, group in df.groupby('year'):
+                if len(group) > 1:
+                    year_return = (group['nav'].iloc[-1] / group['nav'].iloc[0] - 1) * 100
+                    year_dd = group['drawdown'].min() * 100
+                    yearly_returns.append({
+                        'year': int(year),
+                        'return': round(year_return, 2),
+                        'max_dd': round(year_dd, 2)
+                    })
+
+        # 当前持仓（取最后一天）
+        current_holdings = []
+        if self.daily_positions:
+            pos_df = pd.DataFrame(self.daily_positions)
+            if not pos_df.empty and 'date' in pos_df.columns:
+                pos_df['date'] = pd.to_datetime(pos_df['date'])
+                last_date = pos_df['date'].max()
+                last_pos = pos_df[pos_df['date'] == last_date]
+                for _, row in last_pos.iterrows():
+                    if row.get('code'):  # 排除空仓记录
+                        current_holdings.append({
+                            'ticker': row['code'],
+                            'name': row['name'],
+                            'shares': row.get('shares', 0),
+                            'market_value': row.get('market_value', 0),
+                            'profit_pct': round(row.get('profit_pct', 0) * 100, 2),
+                            'hold_days': row.get('hold_days', 0)
+                        })
+
+        # 最新排名/信号（从 rebalance_plans 取最新买入/卖出计划对应的排名信息）
+        latest_rankings = []
+        if self.rebalance_plans:
+            plan_df = pd.DataFrame(self.rebalance_plans)
+            if not plan_df.empty and 'date' in plan_df.columns:
+                plan_df['date'] = pd.to_datetime(plan_df['date'])
+                last_plan_date = plan_df['date'].max()
+                # 从 trade_log 找最新买入记录对应的排名得分
+                if not trade_df.empty and 'reason' in trade_df.columns:
+                    buy_trades = trade_df[trade_df['action'] == 'BUY']
+                    if not buy_trades.empty:
+                        buy_trades['date'] = pd.to_datetime(buy_trades['date'])
+                        last_buys = buy_trades[buy_trades['date'] == last_plan_date]
+                        for _, row in last_buys.iterrows():
+                            reason = row.get('reason', '')
+                            # 提取得分: "排名得分: 123.45"
+                            score = 0
+                            if '排名得分:' in reason:
+                                try:
+                                    score = float(reason.split('排名得分:')[1].strip())
+                                except:
+                                    pass
+                            latest_rankings.append({
+                                'rank': len(latest_rankings) + 1,
+                                'ticker': row.get('code', ''),
+                                'name': row.get('name', ''),
+                                'score': round(score, 2)
+                            })
+
         results = {
             'strategy_name': self.strategy['name'],
             'period': f"{self.start_date} ~ {self.end_date}",
@@ -602,7 +664,10 @@ class BacktestEngine:
             'daily_values': df,
             'trade_log': trade_df,
             'daily_positions': pd.DataFrame(self.daily_positions) if self.daily_positions else pd.DataFrame(),
-            'rebalance_plans': pd.DataFrame(self.rebalance_plans) if self.rebalance_plans else pd.DataFrame()
+            'rebalance_plans': pd.DataFrame(self.rebalance_plans) if self.rebalance_plans else pd.DataFrame(),
+            'yearly_returns': yearly_returns,
+            'current_holdings': current_holdings,
+            'latest_rankings': latest_rankings,
         }
 
         if VERBOSE:

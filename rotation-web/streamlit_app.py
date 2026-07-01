@@ -1012,6 +1012,51 @@ def show_results(results):
         else:
             st.info("暂无净值数据")
 
+    # 年度收益 + 排名/信号 + 当前持仓（三列并排，参考旧版布局）
+    st.divider()
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        st.subheader("📅 年度收益")
+        yearly = results.get('yearly_returns', [])
+        if yearly:
+            ydf = pd.DataFrame(yearly)
+            ydf.columns = ['年度', '收益率%', '最大回撤%']
+            # 颜色标记
+            def color_return(val):
+                return f"color: {'#4CAF50' if val >= 0 else '#F44336'}"
+            st.dataframe(
+                ydf.style.map(color_return, subset=['收益率%']),
+                use_container_width=True, hide_index=True, height=280
+            )
+        else:
+            st.info("暂无数据")
+    
+    with c2:
+        st.subheader("🏆 排名/信号")
+        rankings = results.get('latest_rankings', [])
+        if rankings:
+            rdf = pd.DataFrame(rankings)
+            rdf.columns = ['排名', '代码', '名称', '得分']
+            st.dataframe(rdf, use_container_width=True, hide_index=True, height=280)
+        else:
+            st.info("暂无数据")
+    
+    with c3:
+        st.subheader("💼 当前持仓")
+        holdings = results.get('current_holdings', [])
+        if holdings:
+            hdf = pd.DataFrame(holdings)
+            hdf.columns = ['代码', '名称', '股数', '市值', '收益率%', '持仓天数']
+            def color_profit(val):
+                return f"color: {'#4CAF50' if val >= 0 else '#F44336'}"
+            st.dataframe(
+                hdf.style.map(color_profit, subset=['收益率%']),
+                use_container_width=True, hide_index=True, height=280
+            )
+        else:
+            st.info("空仓/银华日利")
+
     # 交易日志（折叠）
     with st.expander("📝 交易日志"):
         if 'trade_log' in results and results['trade_log'] is not None and not results['trade_log'].empty:
